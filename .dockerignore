@@ -1,0 +1,10 @@
+.venv/
+.git/
+test/
+outputs/
+data/
+*.zip
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+PLAN.md

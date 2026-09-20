@@ -91,6 +91,7 @@ def write_submission(ids: list[str], p_180: np.ndarray, out_path: str | Path, ex
     
     p = np.clip(p, 0.0, 1.0)
     df = pd.DataFrame({"image_id": ids, "p_180": p})
+    Path(out_path).parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(out_path, index=False, float_format="%.6f")
     return df
 

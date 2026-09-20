@@ -85,42 +85,49 @@ def predict_logits(model: PaddleCls, tensors: list[np.ndarray], batch_size: int)
     return out
 
 
-def run(images_dir: Path, ids: list[str], model: PaddleCls, mode: str, batch_size: int) -> pd.DataFrame:
+def run(images_dir: Path, ids: list[str], model: PaddleCls, mode: str, batch_size: int,
+        chunk: int = 256) -> pd.DataFrame:
     """
     возвращает датафрейм с логитами для x и rot180(x) для каждого изображения с производными вероятностей
+
+    Обработка потоковая, чанками по `chunk` изображений: препроцессинг -> инференс -> накопление логитов.
+    Иначе для 20k кропов с окнами и TTA пришлось бы держать ~80k тензоров (~9 GB) в памяти.
     """
     prep = preprocess_windows if mode == "windows" else (lambda im: [preprocess_squeeze(im)])
 
-    # Развернуть все окна изображения (+повороты) в один большой список тензоров, запомнить принадлежность к исх.изображению
-    tensors, owner, is_rot = [], [], []
-    for idx, iid in enumerate(tqdm(ids, desc="preprocess")):
-        img = cv2.cvtColor(read_image(image_path(images_dir, iid)), cv2.COLOR_RGB2BGR)
-        for r, im in ((0, img), (1, rot180(img))):
-            for t in prep(im):
-                tensors.append(t)
-                owner.append(idx)
-                is_rot.append(r)
-    owner, is_rot = np.array(owner), np.array(is_rot)
-
-    t0 = time.perf_counter()
-    z = predict_logits(model, tensors, batch_size)
-    dt = time.perf_counter() - t0
-    print(f"inference: {len(tensors)} tensors in {dt:.1f}s -> {1000 * dt / len(tensors):.2f} ms/tensor, "
-          f"{1000 * dt / len(ids):.2f} ms/image (incl. rot TTA)")
-
-    # усреднить логиты окон для каждого (изображение, поворот)
     n = len(ids)
     z_x = np.zeros(n); z_rx = np.zeros(n); cnt = np.zeros(n)
-    np.add.at(z_x, owner[is_rot == 0], z[is_rot == 0])
-    np.add.at(z_rx, owner[is_rot == 1], z[is_rot == 1])
-    np.add.at(cnt, owner[is_rot == 0], 1)
+    n_tensors, t_infer = 0, 0.0
+
+    for c0 in tqdm(range(0, n, chunk), desc="chunks"):
+        # Развернуть все окна изображений чанка (+повороты) в один список тензоров, запомнить принадлежность
+        tensors, owner, is_rot = [], [], []
+        for idx in range(c0, min(n, c0 + chunk)):
+            img = cv2.cvtColor(read_image(image_path(images_dir, ids[idx])), cv2.COLOR_RGB2BGR)
+            for r, im in ((0, img), (1, rot180(img))):
+                for t in prep(im):
+                    tensors.append(t); owner.append(idx); is_rot.append(r)
+        owner, is_rot = np.array(owner), np.array(is_rot)
+
+        t0 = time.perf_counter()
+        z = predict_logits(model, tensors, batch_size)
+        t_infer += time.perf_counter() - t0
+        n_tensors += len(tensors)
+
+        # накопить сумму логитов окон для каждого (изображение, поворот)
+        np.add.at(z_x, owner[is_rot == 0], z[is_rot == 0])
+        np.add.at(z_rx, owner[is_rot == 1], z[is_rot == 1])
+        np.add.at(cnt, owner[is_rot == 0], 1)
+
+    print(f"inference: {n_tensors} tensors in {t_infer:.1f}s -> {1000 * t_infer / n_tensors:.2f} ms/tensor, "
+          f"{1000 * t_infer / n:.2f} ms/image (incl. rot TTA)")
     z_x /= cnt; z_rx /= cnt
 
     sigmoid = lambda v: 1 / (1 + np.exp(-v))
     return pd.DataFrame({
         "image_id": ids,
         "z_x": z_x, "z_rx": z_rx, "n_windows": cnt.astype(int),
-        "p_x": sigmoid(z_x),                 # обычное предсказания, без TTA
+        "p_x": sigmoid(z_x),                 # обычное предсказание, без TTA
         "p_rx": sigmoid(z_rx),               # предсказание для повернутого кропа
         "p_tta": sigmoid((z_x - z_rx) / 2),  # антисимметричное TTA
     })
@@ -156,6 +163,7 @@ def main() -> None:
     print(f"share of images with >1 window: {float((df['n_windows'] > 1).mean()):.3f}")
 
     if args.raw_out:
+        args.raw_out.parent.mkdir(parents=True, exist_ok=True)
         df.to_csv(args.raw_out, index=False, float_format="%.5f")
     write_submission(ids, p, args.out, expected_n=None if args.limit else 20_000)
     print(f"wrote {args.out}")

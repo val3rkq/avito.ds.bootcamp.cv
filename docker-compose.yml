@@ -1,0 +1,21 @@
+# docker compose run --rm baseline      -> outputs/submission.csv
+# docker compose up -d jupyter             -> http://localhost:8888
+services:
+  baseline:
+    build: .
+    image: avito-cv
+    volumes:
+      - ./test:/app/test:ro
+      - ./sample_submission.csv:/app/sample_submission.csv:ro
+      - ./outputs:/app/outputs
+  jupyter:
+    image: avito-cv
+    build: .
+    command: jupyter notebook --ip=0.0.0.0 --port=8888 --no-browser --allow-root --NotebookApp.token=''
+    ports: ["8888:8888"]
+    volumes:
+      - ./test:/app/test:ro
+      - ./sample_submission.csv:/app/sample_submission.csv:ro
+      - ./outputs:/app/outputs
+      - ./notebooks:/app/notebooks
+      - ./src:/app/src
