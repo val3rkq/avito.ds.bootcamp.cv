@@ -38,12 +38,13 @@ def rot180(img: np.ndarray) -> np.ndarray:
     return np.ascontiguousarray(img[::-1, ::-1])
 
 
-def resize_pad(img: np.ndarray, h: int, w: int, pad_value: int | None = None) -> np.ndarray:
-    """масштабирует изображение под заданную высоту h с сохранением пропорций 
-    (aspect ratio) и дополняет его справа до ширины w.
+def resize_pad(img: np.ndarray, h: int, w: int, pad_value: int | None = None, side: str = "center") -> np.ndarray:
+    """Масштабирует под высоту h с сохранением пропорций и дополняет до ширины w.
 
-    pad_value=None (цвет явно не задан) заполняет медианным значением цвета пикселей с левой и правой
-    границ изображения, иначе заполняет указанным цветом pad_value (int или tuple).
+    side: "center" — паддинг поровну слева/справа, "random" — случайное деление (train), "right" — только справа.
+    Важно: паддинг должен коммутировать с поворотом на 180°, иначе его положение становится шорткатом
+    «паддинг справа => кроп прямой» (модель выучит его вместо ориентации текста). Поэтому по умолчанию center.
+    pad_value=None — медианный цвет левой и правой границ, чтобы паддинг не выглядел как резкая кромка.
     """
     ih, iw = img.shape[:2]
     new_w = min(w, max(1, int(round(h * iw / ih))))
@@ -54,9 +55,11 @@ def resize_pad(img: np.ndarray, h: int, w: int, pad_value: int | None = None) ->
     if pad_value is None:
         border = np.concatenate([resized[:, 0], resized[:, -1]], axis=0)
         pad_value = np.median(border, axis=0)
+    total = w - new_w
+    left = {"center": total // 2, "random": random.randint(0, total), "right": 0}[side]
     out = np.empty((h, w) + img.shape[2:], dtype=img.dtype)
     out[...] = pad_value
-    out[:, :new_w] = resized
+    out[:, left : left + new_w] = resized
     return out
 
 

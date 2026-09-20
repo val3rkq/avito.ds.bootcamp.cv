@@ -1,21 +1,24 @@
-# docker compose run --rm baseline      -> outputs/submission.csv
-# docker compose up -d jupyter             -> http://localhost:8888
+# docker compose run --rm app baseline_paddle --out outputs/submission_v1.csv
+# docker compose run --rm app                 -> список доступных скриптов
+# docker compose up -d jupyter                -> http://localhost:8888
+x-common: &common
+  build: .
+  image: avito-cv
+  volumes:
+    - ./test:/app/test:ro
+    - ./sample_submission.csv:/app/sample_submission.csv:ro
+    - ./data:/app/data
+    - ./weights:/app/weights
+    - ./outputs:/app/outputs
+    - ./src:/app/src
+    - ./scripts:/app/scripts
+    - ./notebooks:/app/notebooks
+
 services:
-  baseline:
-    build: .
-    image: avito-cv
-    volumes:
-      - ./test:/app/test:ro
-      - ./sample_submission.csv:/app/sample_submission.csv:ro
-      - ./outputs:/app/outputs
+  app:
+    <<: *common
   jupyter:
-    image: avito-cv
-    build: .
-    command: jupyter notebook --ip=0.0.0.0 --port=8888 --no-browser --allow-root --NotebookApp.token=''
+    <<: *common
+    entrypoint: []
+    command: jupyter notebook --ip=0.0.0.0 --port=8888 --no-browser --allow-root --NotebookApp.token=""
     ports: ["8888:8888"]
-    volumes:
-      - ./test:/app/test:ro
-      - ./sample_submission.csv:/app/sample_submission.csv:ro
-      - ./outputs:/app/outputs
-      - ./notebooks:/app/notebooks
-      - ./src:/app/src

@@ -10,3 +10,7 @@ jupyter==1.1.1
 notebook==7.6.2
 nbconvert==7.17.1
 ipykernel==7.3.0
+
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.14.0+cpu
+timm==1.0.29

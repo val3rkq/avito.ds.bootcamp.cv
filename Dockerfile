@@ -8,11 +8,11 @@ COPY requirements.txt .
 RUN pip install -r requirements.txt
 
 COPY src ./src
+COPY scripts ./scripts
 COPY weights ./weights
 COPY notebooks ./notebooks
+COPY docker/entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
 
-# Данные (test/images, sample_submission.csv) монтируются томами
-# По умолчанию: бейзлайн -> /app/outputs/submission.csv
-CMD ["sh", "-c", "python -m src.baseline_paddle --images test/images \
-     $( [ -f sample_submission.csv ] && echo --sample-submission sample_submission.csv ) \
-     --out outputs/submission.csv --raw-out outputs/raw_v1_paddle.csv"]
+# Данные (test/, sample_submission.csv, data/, outputs/) монтируются томами
+ENTRYPOINT ["/entrypoint.sh"]

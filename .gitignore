@@ -8,3 +8,5 @@ data/
 *.pyc
 *.zip
 *.csv
+
+weights/v2/

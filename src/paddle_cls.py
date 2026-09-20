@@ -10,13 +10,11 @@ Zero-shot (без дообучения) бейзлайн: PaddleOCR classifier (
     z = (logit(x) - logit(rot180(x))) / 2, 
     p = sigmoid(z), так что p(x) + p(rot180(x)) == 1
 
-Использование:
-    python -m src.baseline_paddle --images test/images --out submission.csv
+Точка входа: scripts/baseline_paddle.py; отсюда импортируют PaddleCls, run, predict_paddle.
 """
 
 from __future__ import annotations
 
-import argparse
 import math
 import time
 from pathlib import Path
@@ -27,7 +25,7 @@ import onnxruntime as ort
 import pandas as pd
 from tqdm import tqdm
 
-from src.common import image_path, list_image_ids, read_image, rot180, summarize_probs, write_submission
+from src.common import image_path, read_image, rot180, summarize_probs
 
 CLS_H, CLS_W = 48, 192
 DEFAULT_MODEL = Path(__file__).resolve().parent.parent / "weights" / "paddle_cls" / "ch_ppocr_mobile_v2.0_cls_infer.onnx"
@@ -133,41 +131,17 @@ def run(images_dir: Path, ids: list[str], model: PaddleCls, mode: str, batch_siz
     })
 
 
-def main() -> None:
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--images", type=Path, required=True)
-    ap.add_argument("--sample-submission", type=Path, default=None)
-    ap.add_argument("--out", type=Path, default=Path("submission.csv"))
-    ap.add_argument("--raw-out", type=Path, default=None, help="csv with logits / no-TTA probs for analysis")
-    ap.add_argument("--model", type=Path, default=DEFAULT_MODEL)
-    ap.add_argument("--mode", choices=["squeeze", "windows"], default="windows")
-    ap.add_argument("--no-tta", action="store_true", help="use p(x) instead of antisymmetric TTA")
-    ap.add_argument("--batch-size", type=int, default=64)
-    ap.add_argument("--limit", type=int, default=None, help="only first N images (local smoke test)")
-    ap.add_argument("--threads", type=int, default=0)
-    args = ap.parse_args()
-
-    ids = list_image_ids(args.images, args.sample_submission)
-    if args.limit:
-        ids = ids[: args.limit]
-    print(f"{len(ids)} images, mode={args.mode}, tta={not args.no_tta}")
-
-    df = run(args.images, ids, PaddleCls(args.model, args.threads), args.mode, args.batch_size)
-    p = df["p_x"].values if args.no_tta else df["p_tta"].values
-
-    print(summarize_probs(df["p_x"].values, "p_x (no TTA)"))
-    print(summarize_probs(p, "p_final"))
-    inconsistency = np.abs(df["p_x"] + df["p_rx"] - 1)
-    print(f"|p(x)+p(rot x)-1|: mean={inconsistency.mean():.3f}  p90={inconsistency.quantile(0.9):.3f}  "
-          f"share>0.5={float((inconsistency > 0.5).mean()):.3f}")
-    print(f"share of images with >1 window: {float((df['n_windows'] > 1).mean()):.3f}")
-
-    if args.raw_out:
-        args.raw_out.parent.mkdir(parents=True, exist_ok=True)
-        df.to_csv(args.raw_out, index=False, float_format="%.5f")
-    write_submission(ids, p, args.out, expected_n=None if args.limit else 20_000)
-    print(f"wrote {args.out}")
-
-
-if __name__ == "__main__":
-    main()
+def predict_paddle(images_dir: Path, ids: list[str], model_path: Path = DEFAULT_MODEL, mode: str = "windows",
+                   batch_size: int = 64, threads: int = 0, verbose: bool = True) -> pd.DataFrame:
+    """
+    Полный прогон бейзлайна: PaddleCls -> run -> датафрейм с p_x / p_rx / p_tta + label-free диагностика в stdout.
+    """
+    df = run(images_dir, ids, PaddleCls(model_path, threads), mode, batch_size)
+    if verbose:
+        print(summarize_probs(df["p_x"].values, "p_x (no TTA)"))
+        print(summarize_probs(df["p_tta"].values, "p_tta"))
+        inconsistency = np.abs(df["p_x"] + df["p_rx"] - 1)
+        print(f"|p(x)+p(rot x)-1|: mean={inconsistency.mean():.3f}  p90={inconsistency.quantile(0.9):.3f}  "
+              f"share>0.5={float((inconsistency > 0.5).mean()):.3f}")
+        print(f"share of images with >1 window: {float((df['n_windows'] > 1).mean()):.3f}")
+    return df
